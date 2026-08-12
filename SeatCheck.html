@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0b0910" />
+<title>SeatCheck — Experience it before you book it</title>
+<style>
+  :root{
+    --bg:#0b0910;
+    --velvet-1:#7a1626;
+    --velvet-1-back:#5c1019;
+    --velvet-2:#5c101c;
+    --velvet-2-back:#450c15;
+    --velvet-3:#431019;
+    --velvet-3-back:#320a13;
+    --gold:#cda653;
+    --gold-dim:#8a7038;
+    --cream:#f4ecdf;
+    --cream-dim:rgba(244,236,223,0.66);
+    --panel-bg:rgba(18,13,17,0.86);
+    --panel-border:rgba(205,166,83,0.28);
+    --serif: 'Iowan Old Style','Palatino Linotype',Palatino,Georgia,'Times New Roman',serif;
+    --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;width:100%;height:100%;background:var(--bg);overflow:hidden;overscroll-behavior:none;font-family:var(--sans);color:var(--cream);}
+  #app{position:fixed;inset:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+  #canvas-holder{position:absolute;inset:0;z-index:2;}
+  canvas{display:block;touch-action:none;background:transparent;}
+
+  /* Screen video source element — kept off-screen; its frames are used
+     directly as a WebGL texture on the actual stage screen mesh, so the
+     video renders as a real part of the 3D scene, not a DOM overlay. */
+  #screen-video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;}
+
+  /* Top bar */
+  #topbar{
+    position:absolute;top:0;left:0;right:0;
+    padding:calc(22px + env(safe-area-inset-top)) 28px 60px;
+    background:linear-gradient(to bottom, rgba(6,4,8,0.75) 0%, rgba(6,4,8,0.35) 55%, rgba(6,4,8,0) 100%);
+    pointer-events:none;
+    z-index:5;
+  }
+  #brand{font-family:var(--serif);font-size:22px;letter-spacing:0.02em;color:var(--cream);}
+  #brand em{font-style:normal;color:var(--gold);}
+  #tagline{font-size:12.5px;color:var(--cream-dim);margin-top:3px;letter-spacing:0.02em;}
+
+  /* Loading overlay */
+  #loading{
+    position:absolute;inset:0;z-index:50;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;
+    transition:opacity 0.5s ease;
+  }
+  #loading .lt{font-family:var(--serif);font-size:19px;color:var(--cream);letter-spacing:0.02em;}
+  #loading .ls{width:120px;height:1px;background:var(--panel-border);position:relative;overflow:hidden;}
+  #loading .ls::after{content:'';position:absolute;left:-40%;top:0;width:40%;height:100%;background:var(--gold);animation:sweep 1.1s ease-in-out infinite;}
+  @keyframes sweep{0%{left:-40%;}100%{left:100%;}}
+
+  /* Back pill */
+  #backpill{
+    position:absolute;top:calc(22px + env(safe-area-inset-top));right:calc(28px + env(safe-area-inset-right));z-index:8;
+    display:none;align-items:center;gap:6px;
+    background:var(--panel-bg);border:1px solid var(--panel-border);
+    color:var(--cream);font-size:13px;padding:11px 16px 11px 14px;border-radius:999px;
+    cursor:pointer;backdrop-filter:blur(6px);min-height:44px;
+  }
+  #backpill:hover{border-color:var(--gold);}
+
+  /* Hint pill bottom center */
+  #hint{
+    position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+    font-size:12px;color:var(--cream-dim);letter-spacing:0.01em;
+    background:rgba(10,7,10,0.5);padding:6px 14px;border-radius:999px;
+    z-index:5;pointer-events:none;white-space:nowrap;
+  }
+
+  #credit{
+    position:absolute;left:calc(16px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));
+    z-index:5;display:flex;align-items:center;gap:6px;
+    font-size:11px;color:rgba(244,236,223,0.4);text-decoration:none;
+    padding:5px 10px;border-radius:999px;transition:color 0.2s ease, background 0.2s ease;
+  }
+  #credit:hover{color:rgba(244,236,223,0.85);background:rgba(10,7,10,0.4);}
+  #credit svg{width:13px;height:13px;flex-shrink:0;opacity:0.85;}
+
+  /* Zoom controls */
+  #zoomctl{
+    position:absolute;right:calc(22px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));z-index:6;
+    display:flex;flex-direction:column;background:var(--panel-bg);
+    border:1px solid var(--panel-border);border-radius:10px;overflow:hidden;
+  }
+  #zoomctl button{
+    width:46px;height:46px;background:transparent;border:0;color:var(--cream);
+    font-size:19px;cursor:pointer;font-family:var(--sans);
+  }
+  #zoomctl button:first-child{border-bottom:1px solid var(--panel-border);}
+  #zoomctl button:hover{color:var(--gold);}
+
+  /* Hover tooltip (desktop mouse only) */
+  #seat-tooltip{
+    position:fixed;z-index:9;pointer-events:none;left:0;top:0;
+    background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:10px;
+    padding:9px 13px;color:var(--cream);backdrop-filter:blur(6px);
+    display:none;white-space:nowrap;transform:translate(16px,16px);
+  }
+  #seat-tooltip .tt-type{color:var(--gold);font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px;}
+  #seat-tooltip .tt-seat{font-size:13px;}
+  #seat-tooltip .tt-price{font-size:12px;color:var(--cream-dim);margin-top:2px;}
+
+  /* Seat panel */
+  #panel{
+    position:absolute;left:calc(24px + env(safe-area-inset-left));bottom:calc(24px + env(safe-area-inset-bottom));width:300px;z-index:7;
+    background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;
+    padding:18px 18px 16px;backdrop-filter:blur(8px);
+    transform:translateY(16px);opacity:0;pointer-events:none;
+    transition:transform 0.35s ease, opacity 0.35s ease;
+  }
+  #panel.show{transform:translateY(0);opacity:1;pointer-events:auto;}
+  #panel .eyebrow{font-size:10.5px;letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);margin-bottom:4px;}
+  #panel h2{font-family:var(--serif);font-weight:normal;font-size:20px;margin:0 0 2px;color:var(--cream);}
+  #panel .rowseat{font-size:13px;color:var(--cream-dim);margin-bottom:12px;}
+  #panel .price{font-family:var(--serif);font-size:22px;color:var(--gold);margin-bottom:12px;}
+  #panel .price span{font-size:12px;color:var(--cream-dim);font-family:var(--sans);}
+  #tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+  .tag{font-size:11px;padding:4px 9px;border-radius:999px;border:1px solid var(--panel-border);color:var(--cream-dim);}
+  .tag.good{border-color:rgba(120,190,150,0.4);color:#a9dcbb;}
+  .tag.warn{border-color:rgba(210,160,90,0.45);color:#e0bd80;}
+  #choose{
+    width:100%;padding:13px;border-radius:9px;border:1px solid var(--gold-dim);
+    background:linear-gradient(180deg, rgba(205,166,83,0.16), rgba(205,166,83,0.05));
+    color:var(--gold);font-size:13.5px;letter-spacing:0.01em;cursor:pointer;font-family:var(--sans);
+    min-height:44px;
+  }
+  #choose:hover{border-color:var(--gold);}
+  #disclaimer{font-size:10.5px;color:var(--cream-dim);text-align:center;margin-top:10px;opacity:0.75;}
+
+  @media (max-width:640px){
+    #panel{
+      left:50%;right:auto;bottom:calc(18px + env(safe-area-inset-bottom));
+      width:auto;min-width:230px;max-width:86vw;
+      border-radius:16px;
+      padding:14px 18px;
+      transform:translate(-50%,20px);
+    }
+    #panel.show{transform:translate(-50%,0);}
+    #panel h2{font-size:17px;}
+    #panel .price{font-size:19px;margin-bottom:10px;}
+    #panel .rowseat{margin-bottom:8px;}
+    #disclaimer{display:none;}
+    #choose{padding:9px;font-size:12.5px;}
+    #topbar{padding:calc(16px + env(safe-area-inset-top)) 16px 50px;}
+    #brand{font-size:18px;}
+    #zoomctl{bottom:calc(16px + env(safe-area-inset-bottom));right:calc(16px + env(safe-area-inset-right));}
+    #hint{font-size:10.5px;bottom:calc(12px + env(safe-area-inset-bottom));}
+    #credit{font-size:10px;padding:4px 8px;left:calc(10px + env(safe-area-inset-left));bottom:calc(10px + env(safe-area-inset-bottom));}
+    #credit svg{width:11px;height:11px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="screen-video" src="./nazariya-screen-video.mp4" loop muted playsinline preload="auto"></video>
+  <div id="canvas-holder"></div>
+
+  <div id="topbar">
+    <div id="brand">Seat<em>Check</em></div>
+    <div id="tagline">Experience it before you book it</div>
+  </div>
+
+  <div id="backpill">‹ Back to theatre</div>
+  <div id="hint">Drag to rotate · scroll to zoom</div>
+
+  <a id="credit" href="https://www.linkedin.com/in/visheshthorat/" target="_blank" rel="noopener noreferrer">
+    <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.03-1.85-3.03-1.85 0-2.14 1.44-2.14 2.94v5.66H9.34V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.38-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56v11.45z"/>
+    </svg>
+    Created by Vishesh Thorat
+  </a>
+
+  <div id="seat-tooltip"></div>
+
+  <div id="zoomctl">
+    <button id="zin">+</button>
+    <button id="zout">−</button>
+  </div>
+
+  <div id="panel">
+    <div class="eyebrow" id="p-section">Silver</div>
+    <h2 id="p-title">Row F · Seat 12</h2>
+    <div class="rowseat" id="p-sub">Center orchestra</div>
+    <div class="price" id="p-price">₹180 <span>/ seat</span></div>
+    <div id="tags"></div>
+    <button id="choose">Choose this seat</button>
+    <div id="disclaimer">Concept preview · seating &amp; pricing are illustrative</div>
+  </div>
+
+  <div id="loading">
+    <div class="lt">Building the theatre…</div>
+    <div class="ls"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var holder = document.getElementById('canvas-holder');
+  var W = window.innerWidth, H = window.innerHeight;
+  var isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
+  // ---------- renderer / scene / camera ----------
+  var renderer = new THREE.WebGLRenderer({antialias: !isCoarsePointer});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, isCoarsePointer ? 1.5 : 2));
+  renderer.setSize(W,H);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = !isCoarsePointer; // real shadows give the scene actual volume/depth
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.domElement.style.position = 'relative';
+  renderer.domElement.style.zIndex = '2';
+  holder.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0910);
+  scene.fog = new THREE.FogExp2(0x0b0910, 0.018);
+
+  var camera = new THREE.PerspectiveCamera(52, W/H, 0.1, 300);
+
+  // ---------- lighting ----------
+  var BASE_AMBIENT = 0.65, BASE_HOUSE = 0.35, BASE_STAGE = 1.4, BASE_POINTER = 0.55;
+  var ambient = new THREE.AmbientLight(0x35281c, BASE_AMBIENT);
+  scene.add(ambient);
+
+  var houseLight = new THREE.DirectionalLight(0xfff2df, BASE_HOUSE);
+  houseLight.position.set(6, 20, 10);
+  houseLight.castShadow = true;
+  houseLight.shadow.mapSize.set(2048, 2048);
+  houseLight.shadow.camera.left = -24;
+  houseLight.shadow.camera.right = 24;
+  houseLight.shadow.camera.top = 24;
+  houseLight.shadow.camera.bottom = -24;
+  houseLight.shadow.camera.near = 1;
+  houseLight.shadow.camera.far = 60;
+  houseLight.shadow.bias = -0.0015;
+  scene.add(houseLight);
+
+  var stageSpot = new THREE.SpotLight(0xffd9a0, BASE_STAGE, 46, Math.PI/4.2, 0.5, 1.2);
+  stageSpot.position.set(0, 17, -10);
+  stageSpot.target.position.set(0, 3, -7);
+  stageSpot.castShadow = true;
+  stageSpot.shadow.mapSize.set(1024, 1024);
+  stageSpot.shadow.bias = -0.001;
+  scene.add(stageSpot, stageSpot.target);
+
+  var pointerSpot = new THREE.SpotLight(0xffe6bd, BASE_POINTER, 26, Math.PI/6, 0.6, 1.5);
+  pointerSpot.position.set(0, 14, 6);
+  scene.add(pointerSpot, pointerSpot.target);
+
+  function animateLights(toAmbient, toHouse, toStage, toPointer, duration){
+    var a0=ambient.intensity, h0=houseLight.intensity;
+    var s0=stageSpot.intensity, p0=pointerSpot.intensity, t0=performance.now();
+    function step(now){
+      var t = Math.min(1, (now-t0)/duration);
+      var e = t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+      ambient.intensity = a0+(toAmbient-a0)*e;
+      houseLight.intensity = h0+(toHouse-h0)*e;
+      stageSpot.intensity = s0+(toStage-s0)*e;
+      pointerSpot.intensity = p0+(toPointer-p0)*e;
+      if(t<1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  // ---------- stage ----------
+
+  var stageGroup = new THREE.Group();
+
+  var stageFloor = new THREE.Mesh(
+    new THREE.BoxGeometry(32, 0.4, 7),
+    new THREE.MeshStandardMaterial({color:0x2c1c12, roughness:0.85})
+  );
+  stageFloor.position.set(0, 0.2, -5.5);
+  stageGroup.add(stageFloor);
+
+  var screenVideo = document.getElementById('screen-video');
+  var screenTexture = new THREE.VideoTexture(screenVideo);
+  screenTexture.minFilter = THREE.LinearFilter;
+  screenTexture.magFilter = THREE.LinearFilter;
+  screenTexture.generateMipmaps = false;
+  screenTexture.encoding = THREE.sRGBEncoding;
+
+  var backdrop = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 16.87), // much wider — still the video's real 16:9 aspect
+    new THREE.MeshBasicMaterial({map:screenTexture})
+  );
+  backdrop.position.set(0, 9.5, -9); // raised so the bottom edge clears the floor at this larger size
+  stageGroup.add(backdrop);
+
+  scene.add(stageGroup);
+
+  function floorTexture(){
+    var c = document.createElement('canvas'); c.width=256; c.height=256;
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = '#180f12'; ctx.fillRect(0,0,256,256);
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2;
+    for(var i=0;i<=256;i+=32){
+      ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(122,22,42,0.16)';
+    for(var x=16;x<256;x+=32){
+      for(var y=16;y<256;y+=32){ ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2); ctx.fill(); }
+    }
+    var tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(22,22);
+    return tex;
+  }
+
+  var floor = new THREE.Mesh(
+    new THREE.CircleGeometry(60, 48),
+    new THREE.MeshStandardMaterial({map:floorTexture(), roughness:1})
+  );
+  floor.rotation.x = -Math.PI/2;
+  floor.position.y = -0.02;
+  scene.add(floor);
+
+  // ---------- room shell ----------
+  // Encloses the hall (back wall, side walls, ceiling) so rotating the
+  // view never reveals the transparent void behind the seats. Sized to
+  // comfortably contain the camera's full range of motion.
+  function panelTexture(){
+    var c = document.createElement('canvas'); c.width = 256; c.height = 256;
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = '#171210'; ctx.fillRect(0,0,256,256);
+    for(var x=0;x<256;x+=32){
+      var grad = ctx.createLinearGradient(x,0,x+32,0);
+      grad.addColorStop(0,'rgba(0,0,0,0.28)');
+      grad.addColorStop(0.5,'rgba(255,255,255,0.02)');
+      grad.addColorStop(1,'rgba(0,0,0,0.28)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x,0,32,256);
+    }
+    var tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(10,4);
+    return tex;
+  }
+
+  var ROOM_X=32, ROOM_TOP=31, ROOM_BOTTOM=-1, ROOM_BACK=44, ROOM_FRONT=-23;
+  var wallMat = new THREE.MeshStandardMaterial({map:panelTexture(), roughness:0.95, side:THREE.DoubleSide});
+  var ceilMat = new THREE.MeshStandardMaterial({color:0x0f0b0a, roughness:1, side:THREE.DoubleSide});
+
+  var backWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_X*2, ROOM_TOP-ROOM_BOTTOM), wallMat);
+  backWall.position.set(0, (ROOM_TOP+ROOM_BOTTOM)/2, ROOM_BACK);
+  scene.add(backWall);
+
+  var leftWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_BACK-ROOM_FRONT, ROOM_TOP-ROOM_BOTTOM), wallMat);
+  leftWall.rotation.y = Math.PI/2;
+  leftWall.position.set(-ROOM_X, (ROOM_TOP+ROOM_BOTTOM)/2, (ROOM_BACK+ROOM_FRONT)/2);
+  scene.add(leftWall);
+
+  var rightWall = leftWall.clone();
+  rightWall.position.x = ROOM_X;
+  scene.add(rightWall);
+
+  var ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_X*2, ROOM_BACK-ROOM_FRONT), ceilMat);
+  ceiling.rotation.x = Math.PI/2;
+  ceiling.position.set(0, ROOM_TOP, (ROOM_BACK+ROOM_FRONT)/2);
+  scene.add(ceiling);
+
+  var trimGold = new THREE.MeshStandardMaterial({color:0xcda553, roughness:0.4, metalness:0.35});
+  var backTrim = new THREE.Mesh(new THREE.BoxGeometry(ROOM_X*2, 0.1, 0.1), trimGold);
+  backTrim.position.set(0, ROOM_TOP, ROOM_BACK-0.05);
+  scene.add(backTrim);
+  var leftTrim = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, ROOM_BACK-ROOM_FRONT), trimGold);
+  leftTrim.position.set(-ROOM_X+0.05, ROOM_TOP, (ROOM_BACK+ROOM_FRONT)/2);
+  scene.add(leftTrim);
+  var rightTrim = leftTrim.clone();
+  rightTrim.position.x = ROOM_X-0.05;
+  scene.add(rightTrim);
+
+  // Wall sconces — warm glowing fixtures along both side walls so the
+  // room doesn't read as one bare box.
+  var sconceMat = new THREE.MeshStandardMaterial({color:0x3a2f18, emissive:0xffb85c, emissiveIntensity:1.1, roughness:0.5});
+  var sconceGeo = new THREE.CylinderGeometry(0.16, 0.2, 0.36, 10);
+  var SCONCE_COUNT = 9;
+  for(var si=0; si<SCONCE_COUNT; si++){
+    var sz = ROOM_FRONT + (si+0.5)*((ROOM_BACK-ROOM_FRONT)/SCONCE_COUNT);
+    [-1,1].forEach(function(side){
+      var sconce = new THREE.Mesh(sconceGeo, sconceMat);
+      sconce.rotation.z = Math.PI/2;
+      sconce.position.set(side*(ROOM_X-0.22), 7.2, sz);
+      scene.add(sconce);
+    });
+  }
+
+  // Side staircases: a solid step per row on each side aisle, rising with
+  // the seating rake, with a thin gold nosing on the front edge of each
+  // tread for a touch of polish.
+  var stairMat = new THREE.MeshStandardMaterial({color:0x1c1712, roughness:0.9});
+  var stepGroup = new THREE.Group();
+  scene.add(stepGroup);
+
+  // ---------- seat generation ----------
+  var allSeats = [];
+  var pickableMeshes = [];
+  var dummy = new THREE.Object3D();
+
+  // Sightline riser constants (C-value method): each row must rise enough to
+  // clear the head of the row in front, all the way to a fixed reference
+  // point at the front of the stage. This is the standard formula theatre
+  // designers use for calculating row heights.
+  var EYE_OFFSET = 0.78;
+  var HEAD_CLEARANCE = 0.11;
+  var SIGHTLINE = {x:0, y:0.42, z:-1};
+
+  // One continuous, gently-raked floor — like a real cinema hall — rather
+  // Real cinema halls are rectangular, not a fan — every row has the same
+  // seat count, and seats all face straight at the screen rather than
+  // being individually rotated toward a center point (that rotation was
+  // making seats look "turned away" once they had visible backrests/
+  // armrests to show orientation clearly). Category/price changes with
+  // distance from the screen only.
+  var FOCAL = {x:0, z:-1};
+  var AISLE_GAP = 1.0;
+  var SEATS_PER_SIDE = 12; // same for every row/tier — no tapering
+  var ROW_START_DIST = 4.2, ROW_DEPTH = 0.95;
+  var TOTAL_ROWS = 22;
+
+  // Each tier gets its own seat "kit" built from primitives to match the
+  // reference photos: Gold and Executive share the same tall-back cinema
+  // seat shape with neutral grey armrests (only the body color differs);
+  // Silver is a plain folding chair; Recliner has a headrest pillow, a
+  // throw pillow, and a cupholder. riseBonus adds a modest step-up per
+  // tier on top of the continuous sightline rake.
+  var TIERS = [
+    {
+      // Basic folding chair: thin fabric seat/back, wood armrests, metal frame hint
+      through:8, name:'Silver', price:180, seatWidth:0.56, riseBonus:0,
+      colorMain:0x55603c, colorBack:0x4a5433, roughness:0.75, metalness:0,
+      cushionGeo:new THREE.BoxGeometry(0.5,0.06,0.48),
+      parts:[
+        {geo:new THREE.BoxGeometry(0.48,0.56,0.05), color:0x4a5433, offset:[0,0.30,0.20], rot:0},
+        {geo:new THREE.BoxGeometry(0.06,0.05,0.42), color:0xc9a06a, offset:[-0.27,0.19,0.0], rot:0},
+        {geo:new THREE.BoxGeometry(0.06,0.05,0.42), color:0xc9a06a, offset:[0.27,0.19,0.0], rot:0},
+        {geo:new THREE.BoxGeometry(0.44,0.04,0.04), color:0x888d92, offset:[0,-0.06,0.0], rot:0}
+      ]
+    },
+    {
+      // Tall rounded back with a raised center lumbar panel, chunky grey arms
+      through:14, name:'Gold', price:250, seatWidth:0.56, riseBonus:0.35,
+      colorMain:0xc0432a, colorBack:0xc0432a, roughness:0.55, metalness:0.05,
+      cushionGeo:new THREE.BoxGeometry(0.54,0.42,0.54),
+      parts:[
+        {geo:new THREE.BoxGeometry(0.54,0.62,0.14), color:0xc0432a, offset:[0,0.30,0.20], rot:0},
+        {geo:new THREE.BoxGeometry(0.20,0.48,0.05), color:0xc0432a, offset:[0,0.30,0.13], rot:0},
+        {geo:new THREE.BoxGeometry(0.09,0.18,0.44), color:0x5a5d61, offset:[-0.29,0.21,0.02], rot:0},
+        {geo:new THREE.BoxGeometry(0.09,0.18,0.44), color:0x5a5d61, offset:[0.29,0.21,0.02], rot:0}
+      ]
+    },
+    {
+      // Same shape as Gold, bigger and in dark premium leather
+      through:19, name:'Executive', price:380, seatWidth:0.56, riseBonus:0.75,
+      colorMain:0x1a1a1c, colorBack:0x1a1a1c, roughness:0.28, metalness:0.18,
+      cushionGeo:new THREE.BoxGeometry(0.58,0.44,0.58),
+      parts:[
+        {geo:new THREE.BoxGeometry(0.58,0.68,0.15), color:0x1a1a1c, offset:[0,0.33,0.22], rot:0},
+        {geo:new THREE.BoxGeometry(0.22,0.52,0.05), color:0x1a1a1c, offset:[0,0.33,0.145], rot:0},
+        {geo:new THREE.BoxGeometry(0.10,0.19,0.47), color:0x5a5d61, offset:[-0.31,0.23,0.03], rot:0},
+        {geo:new THREE.BoxGeometry(0.10,0.19,0.47), color:0x5a5d61, offset:[0.31,0.23,0.03], rot:0}
+      ]
+    },
+    {
+      // Plush recliner: tilted back, cream headrest pad, throw pillow, cupholder
+      through:22, name:'Recliner', price:650, seatWidth:0.85, riseBonus:1.3,
+      colorMain:0x94b878, colorBack:0x94b878, roughness:0.65, metalness:0,
+      cushionGeo:new THREE.BoxGeometry(0.78,0.40,0.66),
+      parts:[
+        {geo:new THREE.BoxGeometry(0.78,0.58,0.16), color:0x94b878, offset:[0,0.35,0.24], rot:0.35},
+        {geo:new THREE.BoxGeometry(0.34,0.16,0.10), color:0xead9b8, offset:[0,0.63,0.31], rot:0.35},
+        {geo:new THREE.BoxGeometry(0.26,0.22,0.09), color:0xead9b8, offset:[0,0.30,0.09], rot:0},
+        {geo:new THREE.CylinderGeometry(0.05,0.05,0.10,12), color:0xead9b8, offset:[0.37,0.34,0.04], rot:0},
+        {geo:new THREE.BoxGeometry(0.12,0.20,0.55), color:0x7fa565, offset:[-0.37,0.23,0.0], rot:0},
+        {geo:new THREE.BoxGeometry(0.12,0.20,0.55), color:0x7fa565, offset:[0.37,0.23,0.0], rot:0},
+        {geo:new THREE.BoxGeometry(0.6,0.10,0.22), color:0x7fa565, offset:[0,0.02,-0.42], rot:0}
+      ]
+    }
+  ];
+  function tierForRow(r){
+    for(var i=0;i<TIERS.length;i++){ if(r<TIERS[i].through) return TIERS[i]; }
+    return TIERS[TIERS.length-1];
+  }
+
+  function buildContinuousFloor(){
+    var prevH=null, prevDist=null;
+    var buckets = {};
+
+    for(var r=0; r<TOTAL_ROWS; r++){
+      var tier = tierForRow(r);
+      var dist = ROW_START_DIST + r*ROW_DEPTH;
+
+      var yNatural;
+      if(r===0){
+        yNatural = 0.25;
+        prevH = (yNatural+EYE_OFFSET) - SIGHTLINE.y;
+      } else {
+        var ratio = dist/prevDist;
+        var H = ratio*(prevH+HEAD_CLEARANCE) - HEAD_CLEARANCE;
+        yNatural = SIGHTLINE.y + H - EYE_OFFSET;
+        prevH = H;
+      }
+      prevDist = dist;
+      var y = yNatural + tier.riseBonus;
+      var z = FOCAL.z + dist;
+
+      var maxX = AISLE_GAP/2 + (SEATS_PER_SIDE-0.5)*tier.seatWidth;
+      var partialThreshold = maxX*0.72;
+
+      // Side-aisle steps, one per row, rising with the rake
+      var STEP_WIDTH = 0.9, STEP_GAP = 0.15;
+      var stepCenterX = maxX + STEP_GAP + STEP_WIDTH/2;
+      [-1,1].forEach(function(side){
+        var step = new THREE.Mesh(new THREE.BoxGeometry(STEP_WIDTH, Math.max(y,0.06), ROW_DEPTH), stairMat);
+        step.position.set(side*stepCenterX, y/2, z);
+        stepGroup.add(step);
+        var nosing = new THREE.Mesh(new THREE.BoxGeometry(STEP_WIDTH, 0.03, 0.05), trimGold);
+        nosing.position.set(side*stepCenterX, y+0.015, z-ROW_DEPTH/2+0.025);
+        stepGroup.add(nosing);
+      });
+
+      var rowSeats = [];
+      for(var side=-1; side<=1; side+=2){
+        for(var j=0;j<SEATS_PER_SIDE;j++){
+          var x = side*(AISLE_GAP/2 + (j+0.5)*tier.seatWidth);
+          rowSeats.push({x:x, isAisle:(j===0)});
+        }
+      }
+      rowSeats.sort(function(a,b){return a.x-b.x;});
+
+      var isLastOfTier = (r === tier.through-1);
+
+      for(var i=0;i<rowSeats.length;i++){
+        var rs = rowSeats[i];
+        var tags = [];
+        if(Math.abs(rs.x) > partialThreshold) tags.push({t:'Partial view', c:'warn'});
+        else tags.push({t:'Great view', c:'good'});
+        if(rs.isAisle) tags.push({t:'Aisle seat', c:''});
+        if(isLastOfTier && tier.name!=='Silver') tags.push({t:'Back row', c:''});
+
+        var seat = {
+          section: tier.name,
+          rowLabel: String.fromCharCode(65+r),
+          seatNum: i+1,
+          price: tier.price,
+          tags: tags,
+          pos: new THREE.Vector3(rs.x, y, z),
+          focal: FOCAL,
+          angleDeg: 0
+        };
+        (buckets[tier.name] = buckets[tier.name] || []).push(seat);
+      }
+    }
+
+    Object.keys(buckets).forEach(function(name){
+      var seats = buckets[name];
+      var tier = TIERS.filter(function(t){ return t.name===name; })[0];
+      var n = seats.length;
+
+      var cushion = new THREE.InstancedMesh(
+        tier.cushionGeo,
+        new THREE.MeshStandardMaterial({color:tier.colorMain, roughness:tier.roughness, metalness:tier.metalness}),
+        n
+      );
+      var partMeshes = tier.parts.map(function(part){
+        return new THREE.InstancedMesh(
+          part.geo,
+          new THREE.MeshStandardMaterial({color:part.color, roughness:tier.roughness, metalness:tier.metalness}),
+          n
+        );
+      });
+
+      for(var k=0;k<n;k++){
+        var seat = seats[k];
+        // No per-seat yaw — every seat faces straight at the screen (-Z),
+        // which is the default orientation, so we just position parts
+        // relative to that fixed world-aligned frame.
+        dummy.position.copy(seat.pos);
+        dummy.rotation.set(0,0,0);
+        dummy.updateMatrix();
+        cushion.setMatrixAt(k, dummy.matrix);
+
+        for(var p=0;p<tier.parts.length;p++){
+          var part = tier.parts[p];
+          dummy.position.copy(seat.pos);
+          dummy.rotation.set(0,0,0);
+          dummy.translateX(part.offset[0]);
+          dummy.translateY(part.offset[1]);
+          dummy.translateZ(part.offset[2]);
+          if(part.rot) dummy.rotateX(part.rot);
+          dummy.updateMatrix();
+          partMeshes[p].setMatrixAt(k, dummy.matrix);
+        }
+      }
+      cushion.instanceMatrix.needsUpdate = true;
+      cushion.userData.seats = seats;
+      scene.add(cushion);
+      partMeshes.forEach(function(m){ m.instanceMatrix.needsUpdate = true; scene.add(m); });
+      pickableMeshes.push(cushion);
+      allSeats = allSeats.concat(seats);
+    });
+  }
+  buildContinuousFloor();
+
+  // ---------- section header labels ----------
+  // Floating signs above each tier so the categories are readable at a
+  // glance in the overview, before clicking or hovering any seat.
+  function hexCss(hex, alpha){
+    var r=(hex>>16)&255, g=(hex>>8)&255, b=hex&255;
+    return 'rgba('+r+','+g+','+b+','+alpha+')';
+  }
+  function roundRectPath(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+  function makeSectionLabel(text, accentHex){
+    var c = document.createElement('canvas'); c.width=512; c.height=128;
+    var ctx = c.getContext('2d');
+    roundRectPath(ctx,6,6,500,116,22);
+    ctx.fillStyle = 'rgba(13,10,10,0.82)'; ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = hexCss(accentHex,0.7); ctx.stroke();
+    ctx.fillStyle = '#cda553';
+    ctx.font = 'bold 46px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text.toUpperCase(), 256, 66);
+    var tex = new THREE.CanvasTexture(c);
+    var mat = new THREE.SpriteMaterial({map:tex, transparent:true});
+    var sprite = new THREE.Sprite(mat);
+    sprite.scale.set(6.4, 1.6, 1);
+    return sprite;
+  }
+  var sectionLabels = [];
+  function addSectionLabel(text, accentHex, x, y, z){
+    var sprite = makeSectionLabel(text, accentHex);
+    sprite.position.set(x,y,z);
+    scene.add(sprite);
+    sectionLabels.push(sprite);
+  }
+
+  addSectionLabel('Silver',    0x55603c, 0, 2.05, 3.2);
+  addSectionLabel('Gold',      0xc0432a, 0, 3.70, 10.8);
+  addSectionLabel('Executive', 0x1a1a1c, 0, 5.08, 16.5);
+  addSectionLabel('Recliner',  0x94b878, 0, 6.44, 21.25);
+
+  // selected-seat marker
+  var marker = new THREE.Mesh(
+    new THREE.RingGeometry(0.32,0.4,24),
+    new THREE.MeshBasicMaterial({color:0xcda553, side:THREE.DoubleSide, transparent:true, opacity:0.9})
+  );
+  marker.visible = false;
+  marker.rotation.x = -Math.PI/2;
+  scene.add(marker);
+
+  // ---------- camera control state ----------
+  var target = new THREE.Vector3(0, 1.8, 11);
+  var spherical = {az: -0.9, pol: 0.95, dist: 18};
+  var minDist=5, maxDist=32, minPol=0.55, maxPol=1.4;
+
+  var mode = 'overview'; // overview | transition | seat
+  var lookYaw = 0, lookPitch = 0;
+  var seatEye = new THREE.Vector3();
+
+  function updateOverviewCamera(){
+    var x = target.x + spherical.dist*Math.sin(spherical.pol)*Math.sin(spherical.az);
+    var y = target.y + spherical.dist*Math.cos(spherical.pol);
+    var z = target.z + spherical.dist*Math.sin(spherical.pol)*Math.cos(spherical.az);
+    camera.position.set(x,y,z);
+    camera.lookAt(target);
+  }
+  updateOverviewCamera();
+
+  function updateSeatCamera(){
+    var dir = new THREE.Vector3(
+      Math.sin(lookYaw)*Math.cos(lookPitch),
+      Math.sin(lookPitch),
+      Math.cos(lookYaw)*Math.cos(lookPitch)
+    );
+    camera.position.copy(seatEye);
+    camera.lookAt(seatEye.x+dir.x, seatEye.y+dir.y, seatEye.z+dir.z);
+  }
+
+  // ---------- pointer input (mouse + touch, unified) ----------
+  var pointers = {};
+  var dragId = null, lastX=0, lastY=0, downX=0, downY=0, moved=0;
+  var pinchStartDist = null, pinchStartVal = 0;
+
+  function pointerDist(){
+    var ids = Object.keys(pointers);
+    if(ids.length<2) return null;
+    var a = pointers[ids[0]], b = pointers[ids[1]];
+    return Math.hypot(a.x-b.x, a.y-b.y);
+  }
+
+  renderer.domElement.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  renderer.domElement.addEventListener('pointerdown', function(e){
+    renderer.domElement.setPointerCapture(e.pointerId);
+    pointers[e.pointerId] = {x:e.clientX, y:e.clientY};
+    var n = Object.keys(pointers).length;
+    if(n===1){
+      dragId = e.pointerId; lastX=e.clientX; lastY=e.clientY;
+      downX=e.clientX; downY=e.clientY; moved=0;
+    } else if(n===2){
+      pinchStartDist = pointerDist();
+      pinchStartVal = (mode==='seat') ? camera.fov : spherical.dist;
+      moved = 999; // multi-touch gesture in progress; never treat as a tap
+    }
+  });
+
+  var tooltip = document.getElementById('seat-tooltip');
+  function hideTooltip(){ tooltip.style.display = 'none'; }
+  function handleHover(cx, cy){
+    if(mode!=='overview'){ hideTooltip(); return; }
+    mouseNDC.x = (cx/window.innerWidth)*2-1;
+    mouseNDC.y = -(cy/window.innerHeight)*2+1;
+    raycaster.setFromCamera(mouseNDC, camera);
+    var hits = raycaster.intersectObjects(pickableMeshes);
+    if(hits.length){
+      var seat = hits[0].object.userData.seats[hits[0].instanceId];
+      tooltip.innerHTML = '<div class="tt-type">'+seat.section+'</div><div class="tt-seat">Row '+seat.rowLabel+' · Seat '+seat.seatNum+'</div><div class="tt-price">₹'+seat.price+' / seat</div>';
+      tooltip.style.left = cx+'px';
+      tooltip.style.top = cy+'px';
+      tooltip.style.display = 'block';
+    } else {
+      hideTooltip();
+    }
+  }
+
+  renderer.domElement.addEventListener('pointermove', function(e){
+    if(!pointers[e.pointerId]){
+      // no button/finger down — pure hover, mouse only (no real hover on touch)
+      if(e.pointerType==='mouse') handleHover(e.clientX, e.clientY);
+      return;
+    }
+    hideTooltip();
+    pointers[e.pointerId] = {x:e.clientX, y:e.clientY};
+    var n = Object.keys(pointers).length;
+
+    if(n===2 && pinchStartDist){
+      var d = pointerDist();
+      var scale = d/pinchStartDist;
+      if(mode==='seat'){
+        camera.fov = clamp(pinchStartVal/scale, 34, 78);
+        camera.updateProjectionMatrix();
+      } else {
+        spherical.dist = clamp(pinchStartVal/scale, minDist, maxDist);
+      }
+      return;
+    }
+
+    if(e.pointerId!==dragId) return;
+    var dx = e.clientX-lastX, dy = e.clientY-lastY;
+    lastX=e.clientX; lastY=e.clientY;
+    moved += Math.abs(dx)+Math.abs(dy);
+
+    if(mode==='overview'){
+      spherical.az -= dx*0.0045;
+      spherical.pol = clamp(spherical.pol - dy*0.0045, minPol, maxPol);
+      updatePointerSpot(e.clientX, e.clientY);
+    } else if(mode==='seat'){
+      lookYaw -= dx*0.0032;
+      lookPitch = clamp(lookPitch - dy*0.0032, -0.55, 0.65);
+    }
+  });
+
+  function endPointer(e){
+    var wasDrag = (e.pointerId===dragId);
+    delete pointers[e.pointerId];
+    var remaining = Object.keys(pointers);
+    if(remaining.length<2) pinchStartDist=null;
+
+    if(remaining.length===1){
+      // a pinch just ended; resume single-finger drag from here, no tap
+      var rid = remaining[0];
+      dragId = Number(rid);
+      lastX = pointers[rid].x; lastY = pointers[rid].y;
+      moved = 999;
+    } else if(remaining.length===0){
+      if(wasDrag && moved<6 && mode==='overview') handleTap(e.clientX, e.clientY);
+      dragId = null;
+    }
+  }
+  renderer.domElement.addEventListener('pointerup', endPointer);
+  renderer.domElement.addEventListener('pointercancel', endPointer);
+  renderer.domElement.addEventListener('pointerleave', hideTooltip);
+
+  renderer.domElement.addEventListener('wheel', function(e){
+    e.preventDefault();
+    if(mode==='seat'){
+      camera.fov = clamp(camera.fov + e.deltaY*0.03, 34, 78);
+      camera.updateProjectionMatrix();
+    } else {
+      spherical.dist = clamp(spherical.dist + e.deltaY*0.02, minDist, maxDist);
+    }
+  }, {passive:false});
+
+  document.getElementById('zin').addEventListener('click', function(){ zoomBtn(-1); });
+  document.getElementById('zout').addEventListener('click', function(){ zoomBtn(1); });
+  function zoomBtn(dir){
+    if(mode==='seat'){
+      camera.fov = clamp(camera.fov + dir*6, 34, 78);
+      camera.updateProjectionMatrix();
+    } else {
+      spherical.dist = clamp(spherical.dist + dir*2.4, minDist, maxDist);
+    }
+  }
+
+  function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+
+  // ---------- mobile seat-number HUD ----------
+  // Touch devices have no hover, so on coarse pointers we draw small seat
+  // numbers directly over nearby seats using a lightweight 2D canvas —
+  // far cheaper than per-seat 3D labels, and naturally thins out with zoom
+  // since only seats close enough to read get drawn.
+  var seatHud = document.createElement('canvas');
+  seatHud.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2;';
+  holder.appendChild(seatHud);
+  var seatHudCtx = seatHud.getContext('2d');
+  function resizeSeatHud(){
+    seatHud.width = window.innerWidth;
+    seatHud.height = window.innerHeight;
+  }
+  resizeSeatHud();
+
+  var hudVec = new THREE.Vector3();
+  function drawSeatHud(){
+    if(!isCoarsePointer || mode!=='overview'){
+      seatHudCtx.clearRect(0,0,seatHud.width,seatHud.height);
+      return;
+    }
+    seatHudCtx.clearRect(0,0,seatHud.width,seatHud.height);
+    seatHudCtx.font = 'bold 11px -apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+    seatHudCtx.textAlign = 'center';
+    seatHudCtx.textBaseline = 'middle';
+    var camPos = camera.position;
+    for(var i=0;i<allSeats.length;i++){
+      var seat = allSeats[i];
+      var dx=seat.pos.x-camPos.x, dy=seat.pos.y-camPos.y, dz=seat.pos.z-camPos.z;
+      if((dx*dx+dy*dy+dz*dz) > 150) continue; // too far to read — skip
+      hudVec.set(seat.pos.x, seat.pos.y+0.34, seat.pos.z);
+      hudVec.project(camera);
+      if(hudVec.z>1 || hudVec.z<-1) continue;
+      var sx = (hudVec.x*0.5+0.5)*seatHud.width;
+      var sy = (-hudVec.y*0.5+0.5)*seatHud.height;
+      if(sx<0||sx>seatHud.width||sy<0||sy>seatHud.height) continue;
+      seatHudCtx.lineWidth = 2.5;
+      seatHudCtx.strokeStyle = 'rgba(10,7,8,0.65)';
+      seatHudCtx.strokeText(seat.seatNum, sx, sy);
+      seatHudCtx.fillStyle = 'rgba(244,236,223,0.85)';
+      seatHudCtx.fillText(seat.seatNum, sx, sy);
+    }
+  }
+
+  // ---------- raycast pick ----------
+  var raycaster = new THREE.Raycaster();
+  var mouseNDC = new THREE.Vector2();
+  var groundPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+
+  function handleTap(cx, cy){
+    mouseNDC.x = (cx/window.innerWidth)*2-1;
+    mouseNDC.y = -(cy/window.innerHeight)*2+1;
+    raycaster.setFromCamera(mouseNDC, camera);
+    var hits = raycaster.intersectObjects(pickableMeshes);
+    if(hits.length){
+      var hit = hits[0];
+      var seat = hit.object.userData.seats[hit.instanceId];
+      selectSeat(seat);
+    }
+  }
+
+  function updatePointerSpot(cx,cy){
+    mouseNDC.x = (cx/window.innerWidth)*2-1;
+    mouseNDC.y = -(cy/window.innerHeight)*2+1;
+    raycaster.setFromCamera(mouseNDC, camera);
+    var pt = new THREE.Vector3();
+    if(raycaster.ray.intersectPlane(groundPlane, pt)){
+      pointerSpot.target.position.lerp(pt, 0.25);
+      pointerSpot.position.lerp(new THREE.Vector3(pt.x, pt.y+12, pt.z+2), 0.25);
+    }
+  }
+
+  // ---------- seat selection + camera fly-to ----------
+  var panel = document.getElementById('panel');
+  var backpill = document.getElementById('backpill');
+  var hint = document.getElementById('hint');
+
+  function selectSeat(seat){
+    hideTooltip();
+    // Sent directly inside the tap handler, so this counts as a real user
+    // gesture — browsers allow unmuted playback started this way.
+    screenVideo.muted = false;
+    screenVideo.currentTime = 0;
+    screenVideo.play();
+    animateLights(0.04, 0.02, 0, 0, 900);
+
+    marker.position.set(seat.pos.x, 0.03, seat.pos.z);
+    marker.visible = true;
+
+    document.getElementById('p-section').textContent = seat.section;
+    document.getElementById('p-title').textContent = 'Row '+seat.rowLabel+' · Seat '+seat.seatNum;
+    document.getElementById('p-sub').textContent = seat.section + (Math.abs(seat.pos.x)<1.4 ? ' · center' : (seat.pos.x<0 ? ' · house left' : ' · house right'));
+    document.getElementById('p-price').innerHTML = '₹'+seat.price+' <span>/ seat</span>';
+    var tagsEl = document.getElementById('tags');
+    tagsEl.innerHTML = '';
+    seat.tags.forEach(function(tg){
+      var el = document.createElement('span');
+      el.className = 'tag'+(tg.c?' '+tg.c:'');
+      el.textContent = tg.t;
+      tagsEl.appendChild(el);
+    });
+
+    var eye = new THREE.Vector3(seat.pos.x, seat.pos.y+EYE_OFFSET, seat.pos.z);
+    var lookAt = new THREE.Vector3(seat.focal.x, 8, -9);
+    flyTo(eye, lookAt, function(){
+      mode='seat';
+      hint.textContent = 'Drag to look around · scroll to zoom';
+      backpill.style.display='flex';
+      panel.classList.add('show');
+    });
+  }
+
+  function backToOverview(){
+    screenVideo.pause();
+    screenVideo.muted = true;
+    animateLights(BASE_AMBIENT, BASE_HOUSE, BASE_STAGE, BASE_POINTER, 700);
+    panel.classList.remove('show');
+    var endEye = null;
+    mode='transition';
+    var startPos = camera.position.clone();
+    var startQuat = camera.quaternion.clone();
+    var tmp = camera.clone();
+    updateOverviewCameraOn(tmp);
+    var endPos = tmp.position.clone();
+    var endQuat = tmp.quaternion.clone();
+    var startFov = camera.fov, endFov = 52;
+    animate(startPos,startQuat,endPos,endQuat,startFov,endFov, function(){
+      mode='overview';
+      hint.textContent = 'Drag to rotate · scroll to zoom';
+      backpill.style.display='none';
+    });
+  }
+  function updateOverviewCameraOn(cam){
+    var x = target.x + spherical.dist*Math.sin(spherical.pol)*Math.sin(spherical.az);
+    var y = target.y + spherical.dist*Math.cos(spherical.pol);
+    var z = target.z + spherical.dist*Math.sin(spherical.pol)*Math.cos(spherical.az);
+    cam.position.set(x,y,z);
+    cam.lookAt(target);
+    cam.fov = 52; cam.updateProjectionMatrix();
+  }
+
+  backpill.addEventListener('click', backToOverview);
+
+  function flyTo(eyePos, lookAtPos, onDone){
+    mode='transition';
+    var startPos = camera.position.clone();
+    var startQuat = camera.quaternion.clone();
+    var tmp = camera.clone();
+    tmp.position.copy(eyePos);
+    tmp.lookAt(lookAtPos);
+    var endPos = eyePos.clone();
+    var endQuat = tmp.quaternion.clone();
+    var startFov = camera.fov, endFov = 58;
+    animate(startPos,startQuat,endPos,endQuat,startFov,endFov, function(){
+      seatEye.copy(eyePos);
+      var dir = lookAtPos.clone().sub(eyePos).normalize();
+      lookPitch = Math.asin(clamp(dir.y,-1,1));
+      lookYaw = Math.atan2(dir.x, dir.z);
+      camera.fov = 58; camera.updateProjectionMatrix();
+      onDone && onDone();
+    });
+  }
+
+  function animate(p0,q0,p1,q1,f0,f1, onDone){
+    var dur=900, t0=performance.now();
+    var pos = new THREE.Vector3(), quat = new THREE.Quaternion();
+    function step(now){
+      var t = Math.min(1, (now-t0)/dur);
+      var e = t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; // easeInOutCubic
+      pos.lerpVectors(p0,p1,e);
+      quat.copy(q0).slerp(q1, e);
+      camera.position.copy(pos);
+      camera.quaternion.copy(quat);
+      camera.fov = f0 + (f1-f0)*e;
+      camera.updateProjectionMatrix();
+      if(t<1){ requestAnimationFrame(step); }
+      else { onDone && onDone(); }
+    }
+    requestAnimationFrame(step);
+  }
+
+  document.getElementById('choose').addEventListener('click', function(){
+    this.textContent = 'Added to preview ✓';
+    var self=this;
+    setTimeout(function(){ self.textContent='Choose this seat'; }, 1400);
+  });
+
+  // ---------- resize ----------
+  function handleResize(){
+    var w=window.innerWidth, h=window.innerHeight;
+    camera.aspect = w/h; camera.updateProjectionMatrix();
+    renderer.setSize(w,h);
+    resizeSeatHud();
+  }
+  window.addEventListener('resize', handleResize);
+  window.addEventListener('orientationchange', function(){
+    setTimeout(handleResize, 250);
+  });
+
+  // Enable shadows broadly now that everything's built. The video screen
+  // is excluded from casting — it's meant to read as a glowing source,
+  // not an opaque object throwing a shadow.
+  scene.traverse(function(obj){
+    if(obj.isMesh){ obj.castShadow = true; obj.receiveShadow = true; }
+  });
+  backdrop.castShadow = false;
+
+  // ---------- render loop ----------
+  var labelsVisible = true;
+  function loop(){
+    if(mode==='overview') updateOverviewCamera();
+    else if(mode==='seat') updateSeatCamera();
+    camera.updateMatrixWorld();
+    drawSeatHud();
+
+    var wantLabels = (mode==='overview');
+    if(wantLabels !== labelsVisible){
+      labelsVisible = wantLabels;
+      for(var li=0; li<sectionLabels.length; li++) sectionLabels[li].visible = labelsVisible;
+    }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+
+  setTimeout(function(){
+    var el = document.getElementById('loading');
+    el.style.opacity='0';
+    setTimeout(function(){ el.style.display='none'; }, 520);
+  }, 480);
+
+  loop();
+})();
+</script>
+</body>
+</html>
